@@ -13,14 +13,13 @@ def parser():
     return parser
 
 
-
 def ctr_predict(parser):
     from source.trainer import fit_model
     
     model = fit_model(parser)
     pred = model.infer_top_K()
     
-    if args.eval :
+    if parser.parse_args().eval :
         evaluate(pred)
     
 

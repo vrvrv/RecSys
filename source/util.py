@@ -9,3 +9,10 @@ def rcplist(true_adj) -> list:
     rcp_list = [non_zero_col[non_zero_row==i] for i in tqdm(range(n_msg))]
     
     return rcp_list
+
+
+def module_import(module_name):
+    try:
+        return __import__(module_name)
+    except ImportError:
+        return None 

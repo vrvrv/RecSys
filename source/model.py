@@ -1,3 +1,5 @@
+from argparse import ArgumentParser
+
 import numpy as np
 import pytorch_lightning as pl
 import os
@@ -7,10 +9,12 @@ from .util import rcplist
 
 class pl_model(pl.LightningModule):
     def __init__(self, n_usr, n_msg, **kwargs):
+        super().__init__()
+        
         self.n_usr = n_usr
         self.n_msg = n_msg
-        self.K = K
-        self.ADJ_PATH = ADJ
+        
+        self.hparams = kwargs
         
     def infer_top_K(self):
         pass
@@ -20,7 +24,6 @@ class pl_model(pl.LightningModule):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         return parser
         
-
     
 class Toppop(pl_model):
     
@@ -30,7 +33,9 @@ class Toppop(pl_model):
         parser.add_argument('--order_by', type=str, default='ctr')
         return parser   
     
-    def fit(self, train_adj, args):
+    def fit(self, train_module):
+        
+        train_adj, args = train_module.adj, train_module.args
         
         # compute popularity
         
@@ -42,19 +47,19 @@ class Toppop(pl_model):
 
         
     def infer_top_K(self):
-        test_adj = load_npz(os.path.join(self.ADJ_PATH, 'test_adj.npz'))
+        test_adj = load_npz(os.path.join(self.hparams.ADJ, 'test_adj.npz'))
         rcp_list = rcplist(test_adj)
         n_msg = len(rcp_list)
 
-        pred = np.empty((n_msg, self.K))
+        pred = np.empty((n_msg, self.hparams.K))
 
         for i in tqdm(range(n_msg)):
-            pred[i] = rcp_list[i][self.ord[rcp_list[i]].argsort()[-self.K:][::-1]]      
+            pred[i] = rcp_list[i][self.ord[rcp_list[i]].argsort()[-self.hparams.K:][::-1]]      
             
         return pred
     
     
-class Random(rb_model):
+class Random(pl_model):
     
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -63,28 +68,26 @@ class Random(rb_model):
         return parser   
     
     
-    def fit(self, train_adj, args):
-        self.replace = args.replace
+    def fit(self, train_module):
+        
+        self.replace = train_module.args.replace
 
     
     def infer_top_K(self):
-        test_adj = load_npz(os.path.join(self.ADJ_PATH, 'test_adj.npz'))
+        test_adj = load_npz(os.path.join(self.hparams.ADJ, 'test_adj.npz'))
         rcp_list = rcplist(test_adj)
         n_msg = len(rcp_list)
 
-        pred = np.empty((n_msg, self.K))
+        pred = np.empty((n_msg, self.hparams.K))
 
         for i in tqdm(range(n_msg)):
             pred[i] = np.random.choice(rcp_list[i], 
-                                       size = self.K,
+                                       size = self.hparams.K,
                                        replace = self.replace)
             
         return pred
         
         
-        
-        
-#class logistic:
     
 class SymML(pl_model):
 
@@ -92,6 +95,9 @@ class SymML(pl_model):
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--hidden_dim', type = int, default = 12)
+        parser.add_argument('--usr_dim', type = int, default = 392)
+        parser.add_argument('--msg_dim', type = int, default = 12)
+        parser.add_argument('--n_negative', type = int, default = 8)
         parser.add_argument('--dropout_prob', type = float, default = 0.2)
         parser.add_argument('--lambda_e', type = float, default = 0.5)
         parser.add_argument('--lambda_f', type = float, default = 0.3)
@@ -100,17 +106,13 @@ class SymML(pl_model):
         parser.add_argument('--optimizer', type = str, default = 'AdamW')
         parser.add_argument('--learning_rate', type = float, default = 1e-4)
         parser.add_argument('--weight_decay', type = float, default = 1e-2)
+        parser.add_argument('--batch_size', type = int, default = 32)
         
         return parser
         
         
     def __init__(self, n_usr, n_msg, **kwargs):
-        self.n_usr = n_usr
-        self.n_msg = n_msg
-        self.K = K
-        self.ADJ_PATH = ADJ
-        
-        self.hparams = kwargs
+        super().__init__(n_usr, n_msg, kwargs)
         
         self.embedding1 = nn.Embedding(n_usr, self.hparams.hidden_dim)
         self.embedding2 = nn.Embedding(n_msg, self.hparams.hidden_dim)
