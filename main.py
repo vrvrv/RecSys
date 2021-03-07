@@ -26,7 +26,7 @@ def main(model, args):
     from source.trainer import fit_model
     
     fitted_model = fit_model(model, args)
-    pred = fitted_model.infer_top_K()
+    pred = fitted_model.infer_top_K(K = args.K)
     
     if args.eval : evaluate(pred)
     

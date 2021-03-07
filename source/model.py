@@ -21,8 +21,17 @@ class pl_model(pl.LightningModule):
         
         self.hparams = kwargs
         
-    def infer_top_K(self):
-        pass
+    def load_test_set(self):
+        test_adj = load_npz(os.path.join(self.hparams.ADJ, 'test_adj.npz'))
+        test_msg_list = np.load(os.path.join(self.hparams.ADJ, 'test_msg_list.npz'))
+        
+        return test_adj, test_msg_list
+        
+    def infer_top_K(self, K):
+            
+        if test_set is None :
+            test_adj, test_msg_list = self.load_test_set()
+
         
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -51,15 +60,18 @@ class Toppop(pl_model):
             self.ord = np.array((train_adj>0).sum(axis=1)).squeeze()
 
         
-    def infer_top_K(self):
-        test_adj = load_npz(os.path.join(self.hparams.ADJ, 'test_adj.npz'))
+    def infer_top_K(self, K, test_set = None):
+            
+        if test_set is None :
+            test_adj, test_msg_list = self.load_test_set()
+            
         rcp_list = rcplist(test_adj)
-        n_msg = len(rcp_list)
+        n_msg = len(test_msg_list)
 
-        pred = np.empty((n_msg, self.hparams.K))
+        pred = np.empty((n_msg, K))
 
         for i in tqdm(range(n_msg)):
-            pred[i] = rcp_list[i][self.ord[rcp_list[i]].argsort()[-self.hparams.K:][::-1]]      
+            pred[i] = rcp_list[i][self.ord[rcp_list[i]].argsort()[-K:][::-1]]      
             
         return pred
     
@@ -78,16 +90,20 @@ class Random(pl_model):
         self.replace = train_module.args.replace
 
     
-    def infer_top_K(self):
-        test_adj = load_npz(os.path.join(self.hparams.ADJ, 'test_adj.npz'))
+    def infer_top_K(self, K, test_set = None):
+            
+        if test_set is None :
+            test_adj, test_msg_list = self.load_test_set()
+        
         rcp_list = rcplist(test_adj)
-        n_msg = len(rcp_list)
+        
+        n_test_msg = len(test_msg_list)
 
-        pred = np.empty((n_msg, self.hparams.K))
+        pred = np.empty((n_msg, K))
 
-        for i in tqdm(range(n_msg)):
+        for i in tqdm(range(n_test_msg)):
             pred[i] = np.random.choice(rcp_list[i], 
-                                       size = self.hparams.K,
+                                       size = K,
                                        replace = self.replace)
             
         return pred
@@ -232,22 +248,24 @@ class SymML(pl_model):
                                                 min=1)
             
             
-    def inference_top_K(self, testAdj, testMsgList, cutoff):
-        import numpy
+    def inference_top_K(self, K, test_set = None) -> torch.Tensor:
+        
+        if test_set is None :
+            test_adj, test_msg_list = self.load_test_set()
+            
+        recommend_list = torch.empty((len(test_msg_list), K))
 
-        recommend_list = torch.empty((len(testMsgList), cutoff))
+        for i in tqdm(range(len(test_msg_list))):
+            recp_user_list, _ = test_adj[:,i].nonzero()
 
-        for i in tqdm(range(len(testMsgList))):
-            recp_user_list, _ = testAdj[:,i].nonzero()
-
-            msg_seq = testMsgList[i]
-            msg_emb = numpy.load(f"data/txt_embed/{msg_seq}.npy")
+            msg_seq = test_msg_list[i]
+            msg_emb = np.load(f"data/txt_embed/{msg_seq}.npy")
 
             msg_emb = self.msg_proj(torch.from_numpy(msg_emb).float()).data
 
             dist = self.embedding1(torch.tensor(recp_user_list, dtype = torch.long)) - msg_emb
 
-            topk = recp_user_list[torch.topk(-torch.square(dist).sum(axis=1), cutoff).indices]
+            topk = recp_user_list[torch.topk(-torch.square(dist).sum(axis=1), K).indices]
 
             recommend_list[i] = torch.from_numpy(topk)
 
