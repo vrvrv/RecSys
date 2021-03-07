@@ -1,21 +1,21 @@
 import os
-from source import model
+from source import datamodule, model
 
 #import dataloader
 
-#from pytorch_lightning import Trainer
-#from pytorch_lightning.loggers import TensorBoardLogger
-#from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning import Trainer
+from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 def subparser(parser):
     subparsers = parent_parser.add_subparsers(title="subparser")
 
 def Model_Info(model):
     
-    if model == 'Toppop': info = {'type' : 'rb', 'dataloader' : None}
-    elif model == 'Random': info = {'type' : 'rb', 'dataloader' : None}
-    elif model == 'Logistic' : info = {'type' : 'mb', 'dataloader' : 'DefaultLoader'}
-    elif model == 'SymML' : info = {'type' : 'nn', 'dataloader' : 'TripletLoader'}
+    if model == 'Toppop': info = {'type' : 'rb', 'datamodule' : 'Loader'}
+    elif model == 'Random': info = {'type' : 'rb', 'datamodule' : 'Loader'}
+    elif model == 'Logistic' : info = {'type' : 'mb', 'datamodule' : 'PairLoader'}
+    elif model == 'SymML' : info = {'type' : 'nn', 'datamodule' : 'TripletLoader'}
     else :
         raise NameError
         
@@ -24,8 +24,10 @@ def Model_Info(model):
     
 def fit_model(parser):
     from scipy.sparse import load_npz
-    print(parser.parse_args('--model'))
-    _model = getattr(model, parser.parse_args('--model'))
+
+    model_name = parser.parse_args().model
+    
+    _model = getattr(model, model_name)
     
     parser = _model.add_model_specific_args(parser)
     parser = Trainer.add_argparse_args(
@@ -34,19 +36,22 @@ def fit_model(parser):
     
     model_info = Model_Info(model_name)
     
-    if model_info['dataloader'] is not None :
-        _datamodule = getattr(dataloader, model_info['dataloader'])
-    
-        train_module = _datamodule(train_adj, args, configs)
-    
-    
-    args = parser.parse_args()
-    
     # Train dataset
-    train_adj = load_npz(os.path.join(args.ADJ, 'train_adj.npz'))
+    train_adj = load_npz(os.path.join(parser.parse_args().ADJ, 'train_adj.npz'))
     n_usr, n_msg = train_adj.shape
     
-    __model = _model(n_usr, n_msg, args)
+    # parse arguments
+    args = parser.parse_args()
+    
+    
+    # Define datamodule
+    _datamodule = getattr(datamodule, model_info['datamodule'])
+
+    train_module = _datamodule(train_adj, args)
+    
+    # Define model
+    __model = _model(n_usr, n_msg, **vars(args))
+    
     
     if model_info['type'] is 'nn':
     
@@ -65,6 +70,6 @@ def fit_model(parser):
         trainer.fit(__model, train_module)
         
     else :
-        __model.fit(train_adj, args, configs)
+        __model.fit(train_module)
     
     return __model
