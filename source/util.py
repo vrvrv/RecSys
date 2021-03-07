@@ -1,3 +1,4 @@
+import os
 from tqdm import tqdm
 
 def rcplist(true_adj) -> list:
@@ -11,8 +12,14 @@ def rcplist(true_adj) -> list:
     return rcp_list
 
 
-def module_import(module_name):
+def get_current_path(path, is_nsml = False):
     try:
-        return __import__(module_name)
+        nsml = __import__('nsml')
+        if is_nsml :
+            return os.path.join(nsml.DATASET_PATH, 
+                            path)
+        else :
+            return os.getcwd()
+    
     except ImportError:
-        return None 
+        return os.getcwd() 

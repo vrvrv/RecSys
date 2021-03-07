@@ -1,11 +1,16 @@
+import os
 from argparse import ArgumentParser
 
-import numpy as np
-import pytorch_lightning as pl
-import os
-from scipy.sparse import load_npz
 from tqdm import tqdm
+from scipy.sparse import load_npz
+import numpy as np
+import torch
+import torch.nn as nn
+import pytorch_lightning as pl
+
+from source import embedding
 from .util import rcplist
+
 
 class pl_model(pl.LightningModule):
     def __init__(self, n_usr, n_msg, **kwargs):
@@ -93,11 +98,12 @@ class SymML(pl_model):
 
     @staticmethod
     def add_model_specific_args(parent_parser):
+        print("hello")
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--hidden_dim', type = int, default = 12)
         parser.add_argument('--usr_dim', type = int, default = 392)
         parser.add_argument('--msg_dim', type = int, default = 12)
-        parser.add_argument('--n_negative', type = int, default = 8)
+        parser.add_argument('--n_negative', type = int, default = 1)
         parser.add_argument('--dropout_prob', type = float, default = 0.2)
         parser.add_argument('--lambda_e', type = float, default = 0.5)
         parser.add_argument('--lambda_f', type = float, default = 0.3)
@@ -107,12 +113,14 @@ class SymML(pl_model):
         parser.add_argument('--learning_rate', type = float, default = 1e-4)
         parser.add_argument('--weight_decay', type = float, default = 1e-2)
         parser.add_argument('--batch_size', type = int, default = 32)
+        parser.add_argument('--usr_proj', type = str, default = 'mlp_embedding_usr')
+        parser.add_argument('--msg_proj', type = str, default = 'mlp_embedding_msg')
         
         return parser
         
         
     def __init__(self, n_usr, n_msg, **kwargs):
-        super().__init__(n_usr, n_msg, kwargs)
+        super().__init__(n_usr, n_msg, **kwargs)
         
         self.embedding1 = nn.Embedding(n_usr, self.hparams.hidden_dim)
         self.embedding2 = nn.Embedding(n_msg, self.hparams.hidden_dim)
@@ -120,19 +128,9 @@ class SymML(pl_model):
         self.usr_margin = nn.Parameter(torch.zeros(n_usr))
         self.msg_margin = nn.Parameter(torch.zeros(n_msg))
         
-        
-        self.user_proj = nn.Sequential(
-            nn.Linear(self.hparams.usr_dim, self.hparams.hidden_dim),
-            nn.Tanh()
-        )
-        
-        self.msg_proj = nn.Sequential(
-            nn.Linear(self.hparams.msg_dim, 128),
-            nn.Tanh(),
-            nn.Dropout(p=self.hparams.dropout_prob),
-            nn.Linear(128, self.hparams.hidden_dim),
-            nn.Tanh()
-        )
+        self.usr_proj = getattr(embedding, self.hparams.usr_proj)(self.hparams)
+        self.msg_proj = getattr(embedding, self.hparams.msg_proj)(self.hparams)
+
         
         
     def forward(self, msg_feat, reciptant, cutoff):
