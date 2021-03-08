@@ -1,5 +1,6 @@
 import os
 from argparse import ArgumentParser
+from collections import defaultdict
 
 from tqdm import tqdm
 from scipy.sparse import load_npz
@@ -9,9 +10,7 @@ import torch.nn as nn
 import pytorch_lightning as pl
 
 from source import embedding
-from source.util import rcplist
-from source.eval import evaluate_all
-
+from source.util import *
 
 class pl_model(pl.LightningModule):
     def __init__(self, n_usr, n_msg, **kwargs):
@@ -21,14 +20,15 @@ class pl_model(pl.LightningModule):
         self.n_msg = n_msg
         
         self.hparams = kwargs
+        self.DATASET_PATH = get_current_path(self.hparams.path, self.hparams.nsml)
         
     def load_test_set(self):
-        print(self.hparams.path)
-        test_adj = load_npz(os.path.join(self.hparams.path,
+        
+        test_adj = load_npz(os.path.join(self.DATASET_PATH,
                                          self.hparams.ADJ, 
                                          'test_adj.npz'))
         
-        test_msg_list = np.load(os.path.join(self.hparams.path,
+        test_msg_list = np.load(os.path.join(self.DATASET_PATH,
                                              self.hparams.ADJ, 
                                              'test_msg_list.npy'))
         
@@ -42,12 +42,24 @@ class pl_model(pl.LightningModule):
            
         rcps = rcplist(test_adj)
             
-        pred = self.inference(rcps, test_msg_list, K)
+        self.pred = self.inference(rcps, test_msg_list, K)
             
-        if evaluate : evaluate_all(pred, test_adj)
+        if evaluate : 
+            self.eval_metric(test_adj, ['MAP', 'MRR', 'HR'])
             
-        return pred
+    def eval_metric(self, test_adj, metrics):
+        
+        from source import Eval
+        
+        result = dict()
+        
+        for metric in metrics :
+            _qeval = getattr(Eval, metric)
             
+            result[metric] = _qeval(self.pred, test_adj)
+        
+        print(result)
+        
         
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -83,7 +95,7 @@ class Toppop(pl_model):
 
         pred = np.empty((len(test_msg_list), K))
 
-        for i in tqdm(range(n_msg)):
+        for i in tqdm(range(len(test_msg_list))):
             pred[i] = rcplist[i][self.ord[rcplist[i]].argsort()[-K:][::-1]]      
             
         return pred
@@ -114,6 +126,76 @@ class Random(pl_model):
             
         return pred
         
+        
+class SVM(pl_model):
+    
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        parser.add_argument('--usr_dim', type = int, default = 392)
+        parser.add_argument('--msg_dim', type = int, default = 768)
+        parser.add_argument('--optimizer', type = str, default = 'SGD')
+        parser.add_argument('--batch_size', type = int, default = 32)
+        parser.add_argument('--learning_rate', type = float, default = 0.1)
+        parser.add_argument('--weight_decay', type = float, default = 0.01)
+        
+        return parser   
+    
+    def __init__(self, n_usr, n_msg, **kwargs):
+        super().__init__(n_usr, n_msg, **kwargs)
+        
+        self.Linear = nn.Linear(self.hparams.usr_dim + self.hparams.msg_dim, 1)
+        
+    def forward(self, input):
+        x = self.Linear(input)
+        return x
+            
+    def training_step(self, batch, batch_idx):
+        usr, msg, y = batch
+        output = self(torch.cat([usr, msg], axis=1))
+        
+        return torch.mean(torch.clamp(1 - output*(2*y-1), min = 0))
+    
+    
+    def configure_optimizers(self):
+        
+        optim = getattr(torch.optim, self.hparams.optimizer)
+        return optim(self.parameters(), 
+                     lr = self.hparams.learning_rate, 
+                     weight_decay = self.hparams.weight_decay)   
+    
+    def inference(self, rcplist, test_msg_list, K):
+
+        pred = np.empty((len(test_msg_list), K))
+        
+        score = defalutdict(list)
+        
+        i = 0
+        
+        for rcp, msg_seq in tqdm(zip(rcplist, test_msg_list), total = len(test_msg_list)):
+            
+            DATAPATH = os.path.join(self.DATASET_PATH, f"data/items/{msg_seq}.npy")
+            
+            msg = torch.from_numpy(np.load(DATAPATH)).float()
+
+            for nv_id in rcp :
+                
+                DATAPATH = os.path.join(self.DATASET_PATH,
+                                        f"data/users/starts_with_{nv_id[:2]}/{nv_id}.npy")
+                
+                usr = torch.from_numpy(np.load(DATAPATH)).float()
+                
+                score[msg_seq].append(self(torch.cat([usr, msg], axis=1)))
+                
+                topk = rcp[torch.topk(score[msg_seq], K).indices]
+
+            pred[i] = torch.from_numpy(topk)
+            
+            i += 1
+        
+
+        return pred
+    
 
 def ContrastiveLoss(pos_dist, neg_dist, margin):
     
@@ -127,7 +209,7 @@ class SymML(pl_model):
         print("hello")
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--hidden_dim', type = int, default = 24)
-        parser.add_argument('--usr_dim', type = int, default = 12)
+        parser.add_argument('--usr_dim', type = int, default = 392)
         parser.add_argument('--msg_dim', type = int, default = 768)
         parser.add_argument('--n_negative', type = int, default = 1)
         parser.add_argument('--dropout_prob', type = float, default = 0.2)
