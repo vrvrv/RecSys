@@ -66,7 +66,7 @@ class pl_model(pl.LightningModule):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         return parser
     
-    def inference(self, test_adj, test_msg_list, K):
+    def inference(self, test_adj, test_msg_list, K) -> np.array:
         pass
     
         
@@ -115,7 +115,7 @@ class Random(pl_model):
         self.replace = train_module.args.replace
 
     
-    def inference(self, rcplist, test_msg_list, K):
+    def inference(self, rcplist, test_msg_list, K) -> np.array:
 
         pred = np.empty((len(test_msg_list), K))
 
@@ -164,7 +164,7 @@ class SVM(pl_model):
                      lr = self.hparams.learning_rate, 
                      weight_decay = self.hparams.weight_decay)   
     
-    def inference(self, rcplist, test_msg_list, K):
+    def inference(self, rcplist, test_msg_list, K) -> np.array:
 
         pred = np.empty((len(test_msg_list), K))
         
@@ -179,21 +179,17 @@ class SVM(pl_model):
             msg = torch.from_numpy(np.load(DATAPATH)).float()
 
             for nv_id in rcp :
-                
                 DATAPATH = os.path.join(self.DATASET_PATH,
                                         f"data/users/starts_with_{nv_id[:2]}/{nv_id}.npy")
                 
                 usr = torch.from_numpy(np.load(DATAPATH)).float()
-                
                 score[msg_seq].append(self(torch.cat([usr, msg], axis=1)))
-                
                 topk = rcp[torch.topk(score[msg_seq], K).indices]
 
-            pred[i] = torch.from_numpy(topk)
+            pred[i] = np.array(topk)
             
             i += 1
         
-
         return pred
     
 
@@ -211,6 +207,7 @@ class CML(pl_model):
         parser.add_argument('--usr_dim', type = int, default = 392)
         parser.add_argument('--msg_dim', type = int, default = 768)
         parser.add_argument('--n_negative', type = int, default = 8)
+        parser.add_argument('--margin', type = float, default = 0.99)
         parser.add_argument('--dropout_prob', type = float, default = 0.2)
         parser.add_argument('--lambda_f', type = float, default = 0.5)
         parser.add_argument('--lambda_c', type = float, default = 0.1)
@@ -244,7 +241,7 @@ class CML(pl_model):
         
         msg_centric_loss = ContrastiveLoss(pos_dist, 
                                            neg_dist, 
-                                           torch.exp(self.msg_margin[pos_msg_idx]).unsqueeze(-1))
+                                           self.hparams.margin)
 
         loss = msg_centric_loss \
              + self.hparams.lambda_f * self.reg1(pos_pairs, neg_usr_idx, neg_usr) \
@@ -287,10 +284,10 @@ class CML(pl_model):
         return regularization
         
     def reg2(self, pos_usr_idx, pos_msg_idx, neg_usr_idx):
-        usr_idx = torch.cat([pos_usr_idx, neg_usr_idx])
+        usr_idx = torch.cat([pos_usr_idx, torch.unique(neg_usr_idx.flatten())])
         msg_idx = pos_msg_idx
         
-        y = torch.cat([self.embedding1(usr_idx).weight, self.embedding2(msg_idx).weight], axis=0)
+        y = torch.cat([self.embedding1(usr_idx), self.embedding2(msg_idx)], axis=0)
         
         C = (y - y.mean(axis=0)).T.matmul(y - y.mean(axis=0))/y.size(0)
         
@@ -321,21 +318,19 @@ class CML(pl_model):
                                                                                                        keepdim=True)),
                                                 min=1)
             
-    def inference(self, rcplist, test_msg_list, K):
+    def inference(self, rcplist, test_msg_list, K) -> np.array:
             
         pred = torch.empty((len(test_msg_list), K))
 
         for i, msg_seq in enumerate(tqdm(test_msg_list)):
-
-            msg_emb = np.load(f"data/txt_embed/{msg_seq}.npy")
-
+            msg_emb = np.load(os.path.join(self.DATASET_PATH, f"data/items/{msg_seq}.npy"))
             msg_emb = self.msg_proj(torch.from_numpy(msg_emb).float()).data
 
             dist = self.embedding1(torch.tensor(rcplist[i], dtype = torch.long)) - msg_emb
-
-            topk = rcplist[i][torch.topk(-torch.square(dist).sum(axis=1), K).indices]
-
-            pred[i] = torch.from_numpy(topk)
+            
+            topk_idx = torch.topk(-torch.square(dist).sum(axis=1), K).indices.tolist()
+            topk = [rcplist[i][idx] for idx in topk_idx]
+            pred[i] = np.array(topk)
 
         return pred
     
@@ -343,12 +338,12 @@ class SymML(CML):
 
     @staticmethod
     def add_model_specific_args(parent_parser):
-        parent_parser = super().add_model_specific_args(parent_parser)
+        parent_parser = CML.add_model_specific_args(parent_parser)
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         
-        parser.add_argument('--lambda_e', type = float, default = 0.5)
-        parser.add_argument('--lambda_f', type = float, default = 0.3)
-        parser.add_argument('--lambda_g', type = float, default = 0.1)
+        parser.add_argument('--lambda_0', type = float, default = 0.5)
+        parser.add_argument('--lambda_1', type = float, default = 0.3)
+        parser.add_argument('--lambda_2', type = float, default = 0.1)
         parser.add_argument('--l', type = float, default = 1)
         
         return parser
@@ -379,9 +374,9 @@ class SymML(CML):
                                            torch.exp(self.usr_margin[neg_usr_idx]))
         
         loss = msg_centric_loss \
-             + self.hparams.lambda_e * usr_centric_loss \
-             + self.hparams.lambda_f * self.reg1(pos_pairs, neg_usr_idx, neg_usr) \
-             + self.hparams.lambda_g * self.reg2()
+             + self.hparams.lambda_0 * usr_centric_loss \
+             + self.hparams.lambda_1 * self.reg1(pos_pairs, neg_usr_idx, neg_usr) \
+             + self.hparams.lambda_2 * self.reg2()
         
         self.log('train_loss', loss)
         
