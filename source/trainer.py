@@ -1,14 +1,11 @@
 import os
-from source import datamodule, model
-
-#import dataloader
+from source import datamodule
+from source.util import *
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-def subparser(parser):
-    subparsers = parent_parser.add_subparsers(title="subparser")
 
 def Model_Info(model):
     
@@ -22,27 +19,18 @@ def Model_Info(model):
     return info
     
     
-def fit_model(parser):
+def fit_model(model, args):
     from scipy.sparse import load_npz
-
-    model_name = parser.parse_args().model
-    
-    _model = getattr(model, model_name)
-    
-    parser = _model.add_model_specific_args(parser)
-    parser = Trainer.add_argparse_args(
-        parser.add_argument_group(title="pl.Trainer args")
-    )
-    
-    model_info = Model_Info(model_name)
+    model_info = Model_Info(model.__name__)
     
     # Train dataset
-    train_adj = load_npz(os.path.join(parser.parse_args().ADJ, 'train_adj.npz'))
+    DATASET_PATH = get_current_path(args.path, args.nsml)
+    
+    train_adj = load_npz(os.path.join(DATASET_PATH,
+                                      args.ADJ,
+                                      'train_adj.npz'))
+    
     n_usr, n_msg = train_adj.shape
-    
-    # parse arguments
-    args = parser.parse_args()
-    
     
     # Define datamodule
     _datamodule = getattr(datamodule, model_info['datamodule'])
@@ -50,7 +38,7 @@ def fit_model(parser):
     train_module = _datamodule(train_adj, args)
     
     # Define model
-    __model = _model(n_usr, n_msg, **vars(args))
+    _model = model(n_usr, n_msg, **vars(args))
     
     
     if model_info['type'] is 'nn':
@@ -59,7 +47,8 @@ def fit_model(parser):
         checkpoint_callback = ModelCheckpoint(save_top_k = -1)
 
         logger = TensorBoardLogger(
-            version = f'{model_name}',
+            save_dir = DATASET_PATH,
+            version = f'{model.__name__}',
             name='lightning_logs'
         )
 
@@ -67,9 +56,9 @@ def fit_model(parser):
                                              callbacks=[checkpoint_callback],
                                              logger = logger)
 
-        trainer.fit(__model, train_module)
+        trainer.fit(_model, train_module)
         
     else :
-        __model.fit(train_module)
+        _model.fit(train_module)
     
-    return __model
+    return _model
