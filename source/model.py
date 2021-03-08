@@ -9,7 +9,8 @@ import torch.nn as nn
 import pytorch_lightning as pl
 
 from source import embedding
-from .util import rcplist
+from source.util import rcplist
+from source.eval import evaluate_all
 
 
 class pl_model(pl.LightningModule):
@@ -22,21 +23,40 @@ class pl_model(pl.LightningModule):
         self.hparams = kwargs
         
     def load_test_set(self):
-        test_adj = load_npz(os.path.join(self.hparams.ADJ, 'test_adj.npz'))
-        test_msg_list = np.load(os.path.join(self.hparams.ADJ, 'test_msg_list.npz'))
+        print(self.hparams.path)
+        test_adj = load_npz(os.path.join(self.hparams.path,
+                                         self.hparams.ADJ, 
+                                         'test_adj.npz'))
+        
+        test_msg_list = np.load(os.path.join(self.hparams.path,
+                                             self.hparams.ADJ, 
+                                             'test_msg_list.npy'))
         
         return test_adj, test_msg_list
         
-    def infer_top_K(self, K):
+        
+    def infer_top_K(self, K : int, evaluate : bool, test_set = None):
             
         if test_set is None :
             test_adj, test_msg_list = self.load_test_set()
-
+           
+        rcps = rcplist(test_adj)
+            
+        pred = self.inference(rcps, test_msg_list, K)
+            
+        if evaluate : evaluate_all(pred, test_adj)
+            
+        return pred
+            
         
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         return parser
+    
+    def inference(self, test_adj, test_msg_list, K):
+        pass
+    
         
     
 class Toppop(pl_model):
@@ -59,19 +79,12 @@ class Toppop(pl_model):
         elif args.order_by == 'n_click' :
             self.ord = np.array((train_adj>0).sum(axis=1)).squeeze()
 
-        
-    def infer_top_K(self, K, test_set = None):
-            
-        if test_set is None :
-            test_adj, test_msg_list = self.load_test_set()
-            
-        rcp_list = rcplist(test_adj)
-        n_msg = len(test_msg_list)
+    def inference(self, rcplist, test_msg_list, K):
 
-        pred = np.empty((n_msg, K))
+        pred = np.empty((len(test_msg_list), K))
 
         for i in tqdm(range(n_msg)):
-            pred[i] = rcp_list[i][self.ord[rcp_list[i]].argsort()[-K:][::-1]]      
+            pred[i] = rcplist[i][self.ord[rcplist[i]].argsort()[-K:][::-1]]      
             
         return pred
     
@@ -90,25 +103,22 @@ class Random(pl_model):
         self.replace = train_module.args.replace
 
     
-    def infer_top_K(self, K, test_set = None):
-            
-        if test_set is None :
-            test_adj, test_msg_list = self.load_test_set()
-        
-        rcp_list = rcplist(test_adj)
-        
-        n_test_msg = len(test_msg_list)
+    def inference(self, rcplist, test_msg_list, K):
 
-        pred = np.empty((n_msg, K))
+        pred = np.empty((len(test_msg_list), K))
 
-        for i in tqdm(range(n_test_msg)):
-            pred[i] = np.random.choice(rcp_list[i], 
+        for i in tqdm(range(len(test_msg_list))):
+            pred[i] = np.random.choice(rcplist[i], 
                                        size = K,
                                        replace = self.replace)
             
         return pred
         
-        
+
+def ContrastiveLoss(pos_dist, neg_dist, margin):
+    
+    return torch.nn.ReLU()(pos_dist.unsqueeze(1)-neg_dist+margin).mean()
+
     
 class SymML(pl_model):
 
@@ -116,9 +126,9 @@ class SymML(pl_model):
     def add_model_specific_args(parent_parser):
         print("hello")
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        parser.add_argument('--hidden_dim', type = int, default = 12)
-        parser.add_argument('--usr_dim', type = int, default = 392)
-        parser.add_argument('--msg_dim', type = int, default = 12)
+        parser.add_argument('--hidden_dim', type = int, default = 24)
+        parser.add_argument('--usr_dim', type = int, default = 12)
+        parser.add_argument('--msg_dim', type = int, default = 768)
         parser.add_argument('--n_negative', type = int, default = 1)
         parser.add_argument('--dropout_prob', type = float, default = 0.2)
         parser.add_argument('--lambda_e', type = float, default = 0.5)
@@ -146,7 +156,6 @@ class SymML(pl_model):
         
         self.usr_proj = getattr(embedding, self.hparams.usr_proj)(self.hparams)
         self.msg_proj = getattr(embedding, self.hparams.msg_proj)(self.hparams)
-
         
         
     def forward(self, msg_feat, reciptant, cutoff):
@@ -209,9 +218,9 @@ class SymML(pl_model):
         
         (pos_usr_idx, pos_usr), (pos_msg_idx, pos_msg) = pos_pairs
         
-        regularization = torch.square(self.embedding1(pos_usr_idx) - self.user_proj(pos_usr)).mean()
+        regularization = torch.square(self.embedding1(pos_usr_idx) - self.usr_proj(pos_usr)).mean()
         
-        regularization += torch.square(self.embedding1(neg_usr_idx) - self.user_proj(neg_usr)).mean()        
+        regularization += torch.square(self.embedding1(neg_usr_idx) - self.usr_proj(neg_usr)).mean()        
         
         regularization += torch.square(self.embedding2(pos_msg_idx) - self.msg_proj(pos_msg)).mean()        
         
@@ -247,27 +256,21 @@ class SymML(pl_model):
                                                                                                        keepdim=True)),
                                                 min=1)
             
+    def inference(self, rcplist, test_msg_list, K):
             
-    def inference_top_K(self, K, test_set = None) -> torch.Tensor:
-        
-        if test_set is None :
-            test_adj, test_msg_list = self.load_test_set()
-            
-        recommend_list = torch.empty((len(test_msg_list), K))
+        pred = torch.empty((len(test_msg_list), K))
 
-        for i in tqdm(range(len(test_msg_list))):
-            recp_user_list, _ = test_adj[:,i].nonzero()
+        for i, msg_seq in enumerate(tqdm(test_msg_list)):
 
-            msg_seq = test_msg_list[i]
             msg_emb = np.load(f"data/txt_embed/{msg_seq}.npy")
 
             msg_emb = self.msg_proj(torch.from_numpy(msg_emb).float()).data
 
-            dist = self.embedding1(torch.tensor(recp_user_list, dtype = torch.long)) - msg_emb
+            dist = self.embedding1(torch.tensor(rcplist[i], dtype = torch.long)) - msg_emb
 
-            topk = recp_user_list[torch.topk(-torch.square(dist).sum(axis=1), K).indices]
+            topk = rcplist[i][torch.topk(-torch.square(dist).sum(axis=1), K).indices]
 
-            recommend_list[i] = torch.from_numpy(topk)
+            pred[i] = torch.from_numpy(topk)
 
-        return recommend_list
+        return pred
     

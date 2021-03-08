@@ -1,13 +1,15 @@
 import os
+import queue
+import threading
+
 import torch
 import numpy as np
 
 from .util import get_current_path
 
-
 class tch_Dataset(torch.utils.data.Dataset):
-    def __init__(self, pos_pairs, neg_pairs, idx2usr_id, 
-                 args, train_or_test='train'):
+    def __init__(self, pos_pairs, neg_pairs, idx2usr_id, idx2_msg_id, 
+                 DATASET_PATH, **kwargs):
         
         super().__init__()
         
@@ -15,16 +17,16 @@ class tch_Dataset(torch.utils.data.Dataset):
         self.neg_usr_msg_pair = neg_pairs
         
         self.idx2usr_id = idx2usr_id
+        self.idx2msg_id = idx2msg_id
         
-        self.DATASET_PATH = get_current_path(args.path, is_nsml = args.nsml)
-        self.idx2usr_id = np.load(os.path.join(self.DATASET_PATH, "data/users/user_list.npy"))
-    
+        self.DATASET_PATH = DATASET_PATH
+        
     def usr_idx2feat(self, usr_idx):
         
         nv_id = self.idx2usr_id[usr_idx]
         
         DATAPATH = os.path.join(self.DATASET_PATH,
-                                f"data/usr_feat/starts_with_{nv_id[:2]}/{nv_id}.npy")
+                                f"data/users/starts_with_{nv_id[:2]}/{nv_id}.npy")
             
         return torch.from_numpy(np.load(DATAPATH)).float()
     
@@ -32,7 +34,7 @@ class tch_Dataset(torch.utils.data.Dataset):
         
         seq = self.idx2msg_id[msg_idx]
         
-        DATAPATH = os.path.join(self.DATASET_PATH, f"data/txt_embed/{seq}.npy")
+        DATAPATH = os.path.join(self.DATASET_PATH, f"data/items/{seq}.npy")
             
         return torch.from_numpy(np.load(DATAPATH)).float()
 
@@ -40,11 +42,11 @@ class tch_Dataset(torch.utils.data.Dataset):
     
 class PairDataset(tch_Dataset):
     
-    def __init__(self, pos_pairs, neg_pairs, idx2usr_id, 
-                 args, train_or_test='train'):
+    def __init__(self, pos_pairs, neg_pairs, idx2usr_id, idx2msg_id,
+                 DATASET_PATH, **kwargs):
         
-        super().__init__(pos_pairs, neg_pairs, idx2usr_id, 
-                         args, train_or_test) 
+        super().__init__(pos_pairs, neg_pairs, idx2usr_id, idx2msg_id,
+                         DATASET_PATH, **kwargs) 
         
         pos_usr_msg_pair = np.concateneate([self.pos_usr_msg_pair, np.ones(self.pos_usr_msg_pair.shape[0])], 
                                            axis = 1)
@@ -74,13 +76,13 @@ class PairDataset(tch_Dataset):
     
     
 class TripletDataset(tch_Dataset): 
-    def __init__(self, pos_pairs, neg_pairs, idx2usr_id, 
-                 args, train_or_test='train'):
+    def __init__(self, pos_pairs, neg_pairs, idx2usr_id, idx2msg_id,
+                 DATASET_PATH, **kwargs):
         
-        super().__init__(pos_pairs, neg_pairs, idx2usr_id, 
-                         args, train_or_test)
+        super().__init__(pos_pairs, neg_pairs, idx2usr_id, idx2msg_id,
+                         DATASET_PATH, **kwargs)
         
-        self.n_negative = args.n_negative
+        self.n_negative = kwargs.get('n_negative')
         
         
     def __len__(self):
@@ -124,7 +126,7 @@ class TripletDataset(tch_Dataset):
         nv_id = self.idx2usr_id[usr_idx]
         
         DATAPATH = os.path.join(self.DATASET_PATH, 
-                                f"data/usr_feat/starts_with_{nv_id[:2]}/{nv_id}.npy")
+                                f"data/users/starts_with_{nv_id[:2]}/{nv_id}.npy")
             
         return q.put((torch.from_numpy(np.load(DATAPATH)).float(), idx))
 

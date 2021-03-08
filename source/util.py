@@ -17,9 +17,9 @@ def get_current_path(path, is_nsml = False):
         nsml = __import__('nsml')
         if is_nsml :
             return os.path.join(nsml.DATASET_PATH, 
-                            path)
+                                path)
         else :
-            return os.getcwd()
+            return path
     
     except ImportError:
-        return os.getcwd() 
+        return path

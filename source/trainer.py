@@ -1,5 +1,6 @@
 import os
 from source import datamodule
+from source.util import *
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -20,15 +21,16 @@ def Model_Info(model):
     
 def fit_model(model, args):
     from scipy.sparse import load_npz
-    
-    model_info = Model_Info(args.model)
+    model_info = Model_Info(model.__name__)
     
     # Train dataset
-    train_adj = load_npz(os.path.join(args.ADJ, 'train_adj.npz'))
+    DATASET_PATH = get_current_path(args.path, args.nsml)
+    
+    train_adj = load_npz(os.path.join(DATASET_PATH,
+                                      args.ADJ,
+                                      'train_adj.npz'))
+    
     n_usr, n_msg = train_adj.shape
-    
-    # parse arguments
-    
     
     # Define datamodule
     _datamodule = getattr(datamodule, model_info['datamodule'])
@@ -45,8 +47,8 @@ def fit_model(model, args):
         checkpoint_callback = ModelCheckpoint(save_top_k = -1)
 
         logger = TensorBoardLogger(
-            save_dir = '.',
-            version = f'{args.model}',
+            save_dir = DATASET_PATH,
+            version = f'{model.__name__}',
             name='lightning_logs'
         )
 
