@@ -1,4 +1,3 @@
 .ipynb_checkpoints/
 *.ipynb
-.nsmlignore
-__pycache__/
+__pycache__

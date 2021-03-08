@@ -36,7 +36,7 @@ def main(model, args):
 
 if __name__ == '__main__':
     
-    _model = getattr(model, 'SVM')
+    _model = getattr(model, 'SymML')
     _args = parser(_model)
     
     main(_model, _args)

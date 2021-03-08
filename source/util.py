@@ -7,7 +7,7 @@ def rcplist(true_adj) -> list:
     
     n_user, n_msg = true_adj.shape
     
-    rcp_list = sorted([non_zero_col[non_zero_row==i] for i in tqdm(range(n_msg))])
+    rcp_list = [sorted(non_zero_col[non_zero_row==i]) for i in tqdm(range(n_msg))]
     
     return rcp_list
 
