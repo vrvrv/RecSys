@@ -1,0 +1,9 @@
+*.ipynb
+.gitignore
+
+# directory
+data/
+lightning_logs/
+.ipynb_checkpoints/
+
+
