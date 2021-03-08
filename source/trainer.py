@@ -11,7 +11,7 @@ def Model_Info(model):
     
     if model == 'Toppop': info = {'type' : 'rb', 'datamodule' : 'Loader'}
     elif model == 'Random': info = {'type' : 'rb', 'datamodule' : 'Loader'}
-    elif model == 'Logistic' : info = {'type' : 'mb', 'datamodule' : 'PairLoader'}
+    elif model == 'SVM' : info = {'type' : 'nn', 'datamodule' : 'PairLoader'}
     elif model == 'SymML' : info = {'type' : 'nn', 'datamodule' : 'TripletLoader'}
     else :
         raise NameError
@@ -48,7 +48,7 @@ def fit_model(model, args):
 
         logger = TensorBoardLogger(
             save_dir = DATASET_PATH,
-            version = f'{model.__name__}',
+            version = f'{model.__name__}_usr_dim_{args.usr_dim}_msg_dim_{args.msg_dim}',
             name='lightning_logs'
         )
 

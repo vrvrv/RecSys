@@ -21,12 +21,6 @@ class pl_Loader(pl.LightningDataModule):
         super().__init__()
         
         self.pos_user_msg_pair = np.asarray((adj>0).nonzero()).T
-        
-        usr, msg = (adj<0).nonzero()
-        self.neg_usr_msg_pair = defaultdict(list)
-
-        for u, m in zip(usr, msg):
-            self.neg_usr_msg_pair[m].append(u)
             
         self.DATASET_PATH = get_current_path(args.path, args.nsml)
 
@@ -46,14 +40,15 @@ class pl_Loader(pl.LightningDataModule):
 class PairLoader(pl_Loader):
     def __init__(self, adj, args):
         super().__init__(adj, args)
+        self.neg_usr_msg_pair = np.asarray((adj<0).nonzero()).T
 
     def setup(self, stage=None):
         
         self.dataset = PairDataset(self.pos_user_msg_pair, 
                                   self.neg_usr_msg_pair,
                                   self.idx2usr_id,
-                                  idx2msg_id = self.idx2msg_id,
-                                  DATASET_PATH = self.DATASET_PATH)
+                                  self.idx2msg_id,
+                                  self.DATASET_PATH)
 
     def train_dataloader(self):
         
@@ -77,6 +72,12 @@ class TripletLoader(pl_Loader):
     def __init__(self, adj, args):
         super().__init__(adj, args)
         
+        usr, msg = (adj<0).nonzero()
+        self.neg_usr_msg_pair = defaultdict(list)
+
+        for u, m in zip(usr, msg):
+            self.neg_usr_msg_pair[m].append(u)
+        
         self.n_negative = args.n_negative
 
     def setup(self, stage=None):
@@ -84,8 +85,8 @@ class TripletLoader(pl_Loader):
         self.dataset = TripletDataset(self.pos_user_msg_pair, 
                                       self.neg_usr_msg_pair,
                                       self.idx2usr_id, 
-                                      idx2msg_id = self.idx2msg_id,
-                                      DATASET_PATH = self.DATASET_PATH,
+                                      self.idx2msg_id,
+                                      self.DATASET_PATH,
                                       n_negative = self.n_negative)
 
     def train_dataloader(self):

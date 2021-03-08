@@ -31,13 +31,12 @@ def main(model, args):
     if args.eval : print(f"cut off : {args.K}") 
     
     fitted_model = fit_model(model, args)
-    pred = fitted_model.infer_top_K(K = args.K,
-                                    evaluate = args.eval)
+    fitted_model.infer_top_K(K = args.K, evaluate = args.eval)
     
 
 if __name__ == '__main__':
     
-    _model = getattr(model, 'SymML')
+    _model = getattr(model, 'SVM')
     _args = parser(_model)
     
     main(_model, _args)

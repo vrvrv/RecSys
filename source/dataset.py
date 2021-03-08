@@ -8,7 +8,7 @@ import numpy as np
 from .util import get_current_path
 
 class tch_Dataset(torch.utils.data.Dataset):
-    def __init__(self, pos_pairs, neg_pairs, idx2usr_id, idx2_msg_id, 
+    def __init__(self, pos_pairs, neg_pairs, idx2usr_id, idx2msg_id, 
                  DATASET_PATH, **kwargs):
         
         super().__init__()
@@ -48,17 +48,17 @@ class PairDataset(tch_Dataset):
         super().__init__(pos_pairs, neg_pairs, idx2usr_id, idx2msg_id,
                          DATASET_PATH, **kwargs) 
         
-        pos_usr_msg_pair = np.concateneate([self.pos_usr_msg_pair, np.ones(self.pos_usr_msg_pair.shape[0])], 
+        pos_usr_msg_pair = np.concatenate([self.pos_usr_msg_pair, np.ones((self.pos_usr_msg_pair.shape[0], 1))], 
                                            axis = 1)
         
-        neg_usr_msg_pair = np.concateneate([self.neg_usr_msg_pair, np.zeros(self.pos_usr_msg_pair.shape[0])], 
+        neg_usr_msg_pair = np.concatenate([self.neg_usr_msg_pair, np.zeros((self.neg_usr_msg_pair.shape[0], 1))], 
                                            axis = 1)
         
         del self.pos_usr_msg_pair
         del self.neg_usr_msg_pair
         
         self.usr_msg_pair = np.concatenate([pos_usr_msg_pair, neg_usr_msg_pair], 
-                                           axis = 0)
+                                           axis = 0).astype(np.int)
     
     def __len__(self):
         return self.usr_msg_pair.shape[0]
